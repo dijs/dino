@@ -13,6 +13,7 @@ const floor = height - 50;
 const initialSpeed = 10;
 const initialEnergy = 3;
 const gravity = 150;
+const rewardsOverTime = Array(32 * 3).fill(0);
 
 let over = false;
 let score = 0;
@@ -84,6 +85,15 @@ function render() {
   for (let i = 0; i < player.energy; i++) {
     ctx.fillRect(player.x + (16 + 16) * i, floor + 16, 16, 16);
   }
+
+  const min = Math.min(...rewardsOverTime);
+  const max = Math.max(...rewardsOverTime);
+
+  rewardsOverTime.forEach((reward, i) => {
+    ctx.fillStyle = reward < 0 ? 'red' : 'green';
+    const norm = (reward + min) / (max - min);
+    ctx.fillRect(width / 2 + 2 * i, 50, 2, norm * 10);
+  });
 }
 
 function update() {
@@ -110,7 +120,6 @@ function update() {
       return;
     }
     if (cacti[i] < -10) {
-      score++;
       cacti[i] = false;
     }
   }
@@ -137,6 +146,7 @@ function update() {
   }
 
   speed += 0.001;
+  score++;
 }
 
 function getState() {
@@ -155,7 +165,7 @@ const spec = {};
 spec.update = 'qlearn'; // qlearn | sarsa
 spec.gamma = 0.9; // discount factor, [0, 1)
 spec.epsilon = 0.2; // initial epsilon for epsilon-greedy policy, [0, 1)
-spec.alpha = 0.005; // value function learning rate
+spec.alpha = 0.0001; // value function learning rate
 spec.experience_add_every = 5; // number of time steps before we add another experience to replay memory
 spec.experience_size = 10000; // size of experience
 spec.learning_steps_per_iteration = 5;
@@ -173,17 +183,31 @@ const agent = new window.RL.DQNAgent(
   },
   spec
 );
+window.agent = agent;
+
+// age
+// agent.expi
+// agent.t
+
+const started = Date.now();
+window.getAge = () => Date.now() - started;
 
 let prevScore = 0;
 let rewardSum = 0;
 let rewardCount = 0;
 
-function getReward() {
-  // if (over) {
-  //   return -100;
-  // }
-  const reward = Math.sign(score - prevScore);
+function getReward(hadEnergy) {
+  // Reward surviving
+  const reward = Math.sign(score - prevScore) * 0.1;
   prevScore = score;
+  // Punish losing
+  if (over) {
+    return -10;
+  }
+  // Punish wasting energy
+  if (hadEnergy && !player.energy && keys[SPACE]) {
+    return -10;
+  }
   return reward;
 }
 
@@ -193,18 +217,22 @@ function gameLoop() {
   const action = agent.act(getState());
   keys[SPACE] = action;
 
+  const hadEnergy = player.energy > 0;
+
   update();
 
-  const reward = getReward();
+  const reward = getReward(hadEnergy);
   rewardSum += reward;
   rewardCount++;
   agent.learn(reward);
 
   if (over) {
-    console.log(score, rewardSum / rewardCount);
+    const avg = rewardSum / rewardCount;
     reset();
     rewardSum = 0;
     rewardCount = 0;
+    rewardsOverTime.pop();
+    rewardsOverTime.unshift(avg);
   }
 
   ticks++;
